@@ -10,12 +10,11 @@ SERVER_IP="192.168.56.110"
 echo "==>> ⚙️  Instalando K3s en modo server... Añadiendo IP al certificado SSL... 🔒"
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
     --tls-san ${SERVER_IP} \
-    --node-ip ${SERVER_IP}" sh -
+    --node-ip ${SERVER_IP} \
+    --write-kubeconfig-mode 644" sh -
 
 echo "==>> ⚠️  Esperando a que K3S aranque... ⚠️"
 sleep 10
-
-chmod 644 /etc/rancher/k3s/k3s.yaml
 
 echo "==>> 🔒  Guardando el token para el worker... 🔒"
 cp /var/lib/rancher/k3s/server/node-token /vagrant/scripts/node-token
