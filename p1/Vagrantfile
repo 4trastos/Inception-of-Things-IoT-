@@ -1,0 +1,33 @@
+SERVER_IP   = "192.168.56.110"
+WORKER_IP   = "192.168.56.111"
+SERVER_NAME = "davgalleS"
+WORKER_NAME = "davgalleSW"
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/bookworm64"
+  config.vm.box_check_update = false
+
+  # Máquina 1: Server (controller)
+  config.vm.define SERVER_NAME do |server|
+    server.vm.hostname = SERVER_NAME
+    server.vm.network "private_network", ip: SERVER_IP
+    server.vm.provider "virtualbox" do |v|
+      v.name   = SERVER_NAME
+      v.memory = 1024
+      v.cpus   = 1
+    end
+    server.vm.provision "shell", path: "scripts/server.sh"
+  end
+
+  # Máquina 2: Worker (agent)
+  config.vm.define WORKER_NAME do |worker|
+    worker.vm.hostname = WORKER_NAME
+    worker.vm.network "private_network", ip: WORKER_IP
+    worker.vm.provider "virtualbox" do |v|
+      v.name   = WORKER_NAME
+      v.memory = 1024
+      v.cpus   = 1
+    end
+    worker.vm.provision "shell", path: "scripts/worker.sh"
+  end
+end
