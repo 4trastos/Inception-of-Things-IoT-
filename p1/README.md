@@ -14,7 +14,7 @@ Tu portátil Ubuntu
 ## ¿Para qué sirve cada pieza en la vida real?
 
 ### Vagrant
-En la realidad, cuando una empresa quiere que todos sus desarrolladores tengan el mismo entorno, usan herramientas como Vagrant. En vez de decirle a cada uno "instala esto, configura aquello", les das un `Vagrantfile` y con `vagrant up` todos tienen exactamente la misma máquina. **Infraestructura como código.**
+En la realidad, cuando una empresa quiere que todos sus desarrolladores tengan el mismo entorno, usan herramientas como Vagrant. En vez de decirle a cada uno "instala esto, configura aquello", se les da un `Vagrantfile` y con `vagrant up` todos tienen exactamente la misma máquina. **Infraestructura como código.**
 
 ### K3s server (davgalleS)
 Es el **cerebro del cluster**. En producción real (Amazon, Google, empresas grandes) esto sería un nodo maestro de Kubernetes gestionando cientos de workers. Su trabajo es:
