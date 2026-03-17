@@ -1,6 +1,6 @@
 ## ¿Qué hemos montado exactamente en la Parte 1?
 
-Hemoss creado **un cluster de Kubernetes real**. Dos máquinas virtuales que se hablan entre ellas y forman un sistema capaz de gestionar contenedores de forma automática.
+Hemos creado **un cluster de Kubernetes real**. Dos máquinas virtuales que se hablan entre ellas y forman un sistema capaz de gestionar contenedores de forma automática.
 
 ```
 Tu portátil Ubuntu
