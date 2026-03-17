@@ -168,4 +168,4 @@ Instancia de GitLab corriendo localmente en el cluster (namespace `gitlab`), int
 
 ## 👤 Autor
 
-**davgalle** — Estudiante de 42
+**davgalle** y **nicgonza** — Estudiantes de 42
