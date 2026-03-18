@@ -15,7 +15,7 @@ kubectl create namespace argocd
 kubectl create namespace dev
 
 echo "==> ⚙️ Instalando Argo CD... ⚙️"
-kubectl apply -n argocd \
+kubectl apply -n argocd --server-side \
     -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 echo "==> ⚠️ Esperando a que Argo CD arranque... ⚠️"
@@ -29,5 +29,10 @@ kubectl get secret argocd-initial-admin-secret \
     -n argocd \
     -o jsonpath='{.data.password}' | base64 -d
 echo ""
+
+echo "==> ⚠️ Configurando kubeconfig para vagrant... ⚠️"
+mkdir -p /home/vagrant/.kube
+k3d kubeconfig get iot > /home/vagrant/.kube/config
+chown vagrant:vagrant /home/vagrant/.kube/config
 
 echo "==> 🟢 setup.sh completado 🟢"
