@@ -10,7 +10,7 @@
 - [Tecnologías utilizadas](#-tecnologías-utilizadas)
 - [Estructura del repositorio](#-estructura-del-repositorio)
 - [Part 1 — K3s y Vagrant](#-part-1--k3s-y-vagrant)
-- [Part 2 — K3s y tres aplicaciones](#-part-2--k3s-y-tres-aplicaciones) *(en progreso)*
+- [Part 2 — K3s y tres aplicaciones](#-part-2--k3s-y-tres-aplicaciones)
 - [Part 3 — K3d y Argo CD](#-part-3--k3d-y-argo-cd) *(pendiente)*
 - [Bonus — GitLab local](#-bonus--gitlab-local) *(pendiente)*
 
@@ -44,20 +44,24 @@
 
 ```
 .
-├── p1/                     # Part 1: K3s con Vagrant (2 VMs)
+├── p1/                          # Part 1: K3s con Vagrant (2 VMs)
 │   ├── Vagrantfile
 │   ├── scripts/
-│   │   ├── server.sh       # Provisión del nodo controller
-│   │   └── worker.sh       # Provisión del nodo agent
+│   │   ├── server.sh            # Provisión del nodo controller
+│   │   └── worker.sh            # Provisión del nodo agent
 │   └── confs/
-├── p2/                     # Part 2: K3s con 3 apps e Ingress
+├── p2/                          # Part 2: K3s con 3 apps e Ingress
 │   ├── Vagrantfile
 │   ├── scripts/
+│   │   └── server.sh            # Provisión del server + apply de manifiestos
 │   └── confs/
-├── p3/                     # Part 3: K3d + Argo CD
+│       ├── apps.yaml            # Deployments y Services de las 3 apps
+│       ├── ingress.yaml         # Reglas de enrutamiento por hostname
+│       └── ingress-default.yaml # Ingress catch-all para app3
+├── p3/                          # Part 3: K3d + Argo CD
 │   ├── scripts/
 │   └── confs/
-├── bonus/                  # Bonus: GitLab local
+├── bonus/                       # Bonus: GitLab local
 │   ├── scripts/
 │   └── confs/
 └── README.md
@@ -144,9 +148,89 @@ vagrant up                  # Volver a crear las VMs
 
 ## 🔄 Part 2 — K3s y tres aplicaciones
 
-> *En progreso...*
+### ¿Qué hace esta parte?
 
-Una sola VM con K3s en modo server. Tres aplicaciones web con enrutamiento por `Host` header mediante Ingress (Traefik).
+Una sola VM con K3s en modo server que ejecuta 3 aplicaciones web. El tráfico se enruta a cada app según el header `Host` de la petición HTTP, usando el Ingress Controller **Traefik** que viene incluido en K3s.
+
+| App | Host | Réplicas | Respuesta |
+|-----|------|----------|-----------|
+| app-one | `app1.com` | 1 | Hello from app1 |
+| app-two | `app2.com` | **3** | Hello from app2 |
+| app-three | cualquier otro | 1 | Hello from app3 |
+
+### Conceptos aprendidos
+
+- **Deployment**: garantiza que N réplicas de un pod estén siempre corriendo. Si un pod muere, K8s lo recrea automáticamente.
+- **Service**: da una IP/DNS interna estable para acceder a los pods de un Deployment. El Ingress se comunica con los Services, no con los pods directamente.
+- **Ingress**: reglas de enrutamiento HTTP. Examina el header `Host` de cada petición y la redirige al Service correcto.
+- **initContainer**: contenedor que se ejecuta antes del contenedor principal para preparar el entorno. En este caso escribe el `index.html` personalizado antes de que nginx arranque.
+- **Labels y Selectors**: mecanismo que conecta Deployments con Services. El Deployment crea pods con una etiqueta (`app: app-one`) y el Service busca pods con esa misma etiqueta.
+
+### Arquitectura del enrutamiento
+
+```
+Petición HTTP (Host: app2.com)
+    │
+    ▼
+Ingress (Traefik — 192.168.56.110:80)
+    │  Regla: Host app2.com → Service app-two
+    ▼
+Service app-two (ClusterIP)
+    │  Balancea entre 3 réplicas automáticamente
+    ├──► Pod app-two-1
+    ├──► Pod app-two-2
+    └──► Pod app-two-3
+```
+
+### Cómo reproducirlo
+
+```bash
+cd p2
+vagrant up
+
+# Verificar que los 5 pods están corriendo (1+3+1)
+vagrant ssh davgalleS
+kubectl get pods
+kubectl get ingress
+```
+
+### Añadir los hosts en tu máquina (para acceso desde el navegador)
+
+```bash
+# En tu PC host (no en la VM)
+echo "192.168.56.110 app1.com" | sudo tee -a /etc/hosts
+echo "192.168.56.110 app2.com" | sudo tee -a /etc/hosts
+echo "192.168.56.110 app3.com" | sudo tee -a /etc/hosts
+```
+
+### Verificar el enrutamiento
+
+```bash
+# Desde tu PC host
+curl -H "Host: app1.com" http://192.168.56.110   # → Hello from app1
+curl -H "Host: app2.com" http://192.168.56.110   # → Hello from app2
+curl http://192.168.56.110                        # → Hello from app3 (default)
+
+# O desde el navegador:
+# http://app1.com  → app1
+# http://app2.com  → app2
+# http://192.168.56.110 → app3
+```
+
+### Resultado esperado
+
+```
+NAME                         READY   STATUS    RESTARTS   AGE
+app-one-xxx                  1/1     Running   0          5m
+app-three-xxx                1/1     Running   0          5m
+app-two-xxx                  1/1     Running   0          5m  ← réplica 1
+app-two-xxx                  1/1     Running   0          5m  ← réplica 2
+app-two-xxx                  1/1     Running   0          5m  ← réplica 3
+
+NAME                   CLASS     HOSTS                        ADDRESS          PORTS
+apps-ingress           <none>    app1.com,app2.com,app3.com   192.168.56.110   80
+apps-ingress-default   traefik   *                            192.168.56.110   80
+```
 
 ---
 
