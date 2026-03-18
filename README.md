@@ -59,8 +59,13 @@
 │       ├── ingress.yaml         # Reglas de enrutamiento por hostname
 │       └── ingress-default.yaml # Ingress catch-all para app3
 ├── p3/                          # Part 3: K3d + Argo CD
+│   ├── Vagrantfile
 │   ├── scripts/
+│   │   ├── install.sh           # Instala Docker, K3d y kubectl en la VM
+│   │   └── setup.sh             # Crea el cluster, instala Argo CD y despliega la app
 │   └── confs/
+│       ├── deployment.yaml      # Deployment + Service de wil-playground (app a desplegar)
+│       └── argocd-app.yaml      # Application de Argo CD apuntando al repo de GitHub
 ├── bonus/                       # Bonus: GitLab local
 │   ├── scripts/
 │   └── confs/
