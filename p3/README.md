@@ -5,7 +5,7 @@
 Hemos dado un salto cualitativo respecto a las partes anteriores. Ya no aplicamos cambios manualmente con `kubectl apply`. Ahora **el repositorio de GitHub es la fuente de verdad** y Argo CD se encarga de que el cluster siempre refleje lo que hay en el repo.
 
 ```
-Tu portátil Ubuntu
+NUestro Host Ubuntu
     └── VirtualBox
             └── davgalleS (192.168.56.110)
                     └── Docker

@@ -11,7 +11,7 @@
 - [Estructura del repositorio](#-estructura-del-repositorio)
 - [Part 1 — K3s y Vagrant](#-part-1--k3s-y-vagrant)
 - [Part 2 — K3s y tres aplicaciones](#-part-2--k3s-y-tres-aplicaciones)
-- [Part 3 — K3d y Argo CD](#-part-3--k3d-y-argo-cd) *(pendiente)*
+- [Part 3 — K3d y Argo CD](#-part-3--k3d-y-argo-cd)
 - [Bonus — GitLab local](#-bonus--gitlab-local) *(pendiente)*
 
 ---
@@ -236,9 +236,98 @@ apps-ingress-default   traefik   *                            192.168.56.110   8
 
 ## ⚙️ Part 3 — K3d y Argo CD
 
-> *Pendiente...*
+### ¿Qué hace esta parte?
 
-Cluster K3d (K3s en Docker) con Argo CD implementando GitOps: los cambios en este repositorio se sincronizan automáticamente al cluster.
+Una VM con Docker que ejecuta un cluster K3d (K3s dentro de Docker). Argo CD vigila este repositorio de GitHub y despliega automáticamente la aplicación `wil42/playground` en el namespace `dev`. Cualquier cambio en el repo se refleja en el cluster sin intervención manual.
+
+| Namespace | Contenido |
+|-----------|-----------|
+| `argocd` | Argo CD — el sistema que vigila GitHub y sincroniza el cluster |
+| `dev` | `wil-playground` — la app desplegada automáticamente por Argo CD |
+
+### Conceptos aprendidos
+
+- **K3d**: herramienta que ejecuta K3s dentro de contenedores Docker. Crear un cluster tarda 30 segundos en lugar de minutos.
+- **GitOps**: patrón donde Git es la única fuente de verdad. El estado del cluster siempre refleja lo que hay en el repositorio.
+- **Argo CD**: herramienta GitOps que vigila un repo de GitHub y sincroniza automáticamente los cambios al cluster.
+- **Namespaces**: aislamiento lógico dentro del cluster. Cada namespace tiene sus propios recursos independientes.
+
+### Arquitectura GitOps
+
+```
+git push (cambio de v1 a v2)
+    │
+    ▼
+GitHub (4trastos/Inception-of-Things-IoT-)
+    │  Argo CD detecta el cambio cada ~3 minutos
+    ▼
+Argo CD (namespace: argocd)
+    │  Compara repo vs cluster → detecta diferencia
+    │  Aplica el nuevo deployment automáticamente
+    ▼
+namespace: dev
+    └── wil-playground pod actualizado a v2 ✅
+```
+
+### Cómo reproducirlo
+
+```bash
+cd p3
+vagrant up
+
+# Conectarse y verificar
+vagrant ssh davgalleS
+kubectl get nodes
+kubectl get pods -n argocd
+kubectl get pods -n dev
+kubectl get applications -n argocd
+```
+
+### Demostrar el ciclo GitOps (obligatorio en la evaluación)
+
+```bash
+# 1. Verificar que la app está en v1
+kubectl port-forward svc/wil-playground -n dev 9999:8888 &
+sleep 2
+curl http://localhost:9999/
+# {"status":"ok", "message": "v1"}
+
+# 2. Salir de la VM y cambiar la versión en GitHub
+exit
+sed -i 's/wil42\/playground:v1/wil42\/playground:v2/g' p3/confs/deployment.yaml
+git add p3/confs/deployment.yaml
+git commit -m "update app to v2"
+git push
+
+# 3. Volver a la VM y esperar ~3 minutos a que Argo CD sincronice
+vagrant ssh davgalleS
+kubectl get applications -n argocd   # Synced + Healthy
+kubectl get pods -n dev              # Pod nuevo arrancando
+
+# 4. Verificar la nueva versión
+kubectl port-forward svc/wil-playground -n dev 9999:8888 &
+sleep 2
+curl http://localhost:9999/
+# {"status":"ok", "message": "v2"}
+```
+
+### Resultado esperado
+
+```
+$ kubectl get namespaces
+NAME              STATUS
+argocd            Active
+dev               Active
+...
+
+$ kubectl get pods -n dev
+NAME                              READY   STATUS    RESTARTS   AGE
+wil-playground-xxx                1/1     Running   0          Xm
+
+$ kubectl get applications -n argocd
+NAME             SYNC STATUS   HEALTH STATUS
+wil-playground   Synced        Healthy
+```
 
 ---
 
