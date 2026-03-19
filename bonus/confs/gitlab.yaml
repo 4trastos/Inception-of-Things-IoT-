@@ -13,6 +13,8 @@ spec:
       labels:
         app: gitlab
     spec:
+      securityContext:
+        runAsUser: 0
       containers:
       - name: gitlab
         image: gitlab/gitlab-ce:latest
