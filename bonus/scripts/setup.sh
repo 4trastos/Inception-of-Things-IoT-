@@ -4,8 +4,6 @@ set -e
 GITLAB_NS="gitlab"
 ARGOCD_NS="argocd"
 DEV_NS="dev"
-GITLAB_ROOT_PASSWORD="GitLabAdmin42!"
-GITLAB_URL="http://gitlab-webservice-default.gitlab.svc.cluster.local:8181"
 
 echo "==> ⚙️ Creando cluster K3d... ⚙️"
 k3d cluster create iot \
@@ -28,37 +26,12 @@ kubectl create namespace $GITLAB_NS
 kubectl create namespace $ARGOCD_NS
 kubectl create namespace $DEV_NS
 
-echo "==> ⚙️ Instalando GitLab con Helm... ⚙️"
-helm repo add gitlab https://charts.gitlab.io/
-helm repo update
+echo "==> ⚙️ Desplegando GitLab CE... ⚙️"
+kubectl apply -f /vagrant/confs/gitlab.yaml
 
-helm upgrade --install gitlab gitlab/gitlab \
-    --namespace $GITLAB_NS \
-    --timeout 600s \
-    --set global.hosts.domain=gitlab.local \
-    --set global.hosts.externalIP=192.168.56.110 \
-    --set global.edition=ce \
-    --set global.initialRootPassword=$GITLAB_ROOT_PASSWORD \
-    --set certmanager.install=false \
-    --set global.ingress.configureCertmanager=false \
-    --set global.ingress.tls.enabled=false \
-    --set gitlab-runner.install=false \
-    --set prometheus.install=false \
-    --set grafana.enabled=false \
-    --set global.kas.enabled=false \
-    --set gitlab.webservice.minReplicas=1 \
-    --set gitlab.webservice.maxReplicas=1 \
-    --set gitlab.sidekiq.minReplicas=1 \
-    --set gitlab.sidekiq.maxReplicas=1 \
-    --set gitlab.gitlab-shell.minReplicas=1 \
-    --set gitlab.gitlab-shell.maxReplicas=1 \
-    --set redis.master.persistence.enabled=false \
-    --set postgresql.primary.persistence.enabled=false \
-    --set minio.persistence.enabled=false
-
-echo "==> ⚠️ Esperando a que GitLab arranque (puede tardar 5-10 min)... ⚠️"
-kubectl wait --for=condition=Ready pods \
-    -l app=webservice \
+echo "==> ⚠️ Esperando a que GitLab arranque (puede tardar 5 min)... ⚠️"
+kubectl wait --for=condition=Ready pod \
+    -l app=gitlab \
     -n $GITLAB_NS \
     --timeout=600s
 
@@ -84,4 +57,5 @@ kubectl get secret argocd-initial-admin-secret \
 echo ""
 
 echo "==> 🟢 setup.sh completado 🟢"
-echo "==> GitLab: http://192.168.56.110:8080  usuario: root  pass: $GITLAB_ROOT_PASSWORD"
+echo "==> GitLab disponible en: http://192.168.56.110:8929"
+echo "==> Usuario: root  Contrasena: GitLabAdmin42!"

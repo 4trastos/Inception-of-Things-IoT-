@@ -3,7 +3,7 @@
 Hemos creado **un cluster de Kubernetes real**. Dos máquinas virtuales que se hablan entre ellas y forman un sistema capaz de gestionar contenedores de forma automática.
 
 ```
-Tu portátil Ubuntu
+host Ubuntu (tu pc)
     └── VirtualBox
             ├── davgalleS  (192.168.56.110)  ← El "jefe"
             └── davgalleSW (192.168.56.111)  ← El "trabajador"
