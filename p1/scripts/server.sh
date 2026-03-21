@@ -17,6 +17,7 @@ echo "==>> ⚠️  Esperando a que K3S aranque... ⚠️"
 sleep 10
 
 echo "==>> 🔒  Guardando el token para el worker... 🔒"
+mkdir -p /vagrant/scripts
 cp /var/lib/rancher/k3s/server/node-token /vagrant/scripts/node-token
 
 echo "==>> 🖥️  Configurando kubectl para el usuario valgrant... 👉 (permite usar kubectl directamente sin sudo)"
