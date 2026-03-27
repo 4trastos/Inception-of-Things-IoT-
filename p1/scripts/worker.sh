@@ -4,9 +4,11 @@ set -e
 echo "==> ⚙️  Instalando dependencias... ⚙️"
 apt-get update -y
 apt-get install -y curl
+apt-get install vagrant -y
+vagrant plugin install vagrant-vbguest
 
-SERVER_IP="192.168.56.110"
-WORKER_IP="192.168.56.111"
+SERVER_IP="192.168.56.10"
+WORKER_IP="192.168.56.11"
 
 echo "==>> ⚠️ Esperando del token del server ... ⚠️"
 while [ ! -f /vagrant/scripts/node-token ]; do

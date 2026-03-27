@@ -4,8 +4,10 @@ set -e
 echo "==>> ⚙️  Instalando dependencias... ⚙️"
 apt-get update -y
 apt-get install -y curl
+apt-get install vagrant -y
+vagrant plugin install vagrant-vbguest
 
-SERVER_IP="192.168.56.110"
+SERVER_IP="192.168.56.10"
 
 echo "==>> ⚙️  Instalando K3s en modo server... Añadiendo IP al certificado SSL... 🔒"
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
@@ -14,11 +16,12 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
     --write-kubeconfig-mode 644" sh -
 
 echo "==>> ⚠️  Esperando a que K3S aranque... ⚠️"
-sleep 10
+sleep 20
 
 echo "==>> 🔒  Guardando el token para el worker... 🔒"
 mkdir -p /vagrant/scripts
 cp /var/lib/rancher/k3s/server/node-token /vagrant/scripts/node-token
+chmod 777 /vagrant/scripts/node-token
 
 echo "==>> 🖥️  Configurando kubectl para el usuario valgrant... 👉 (permite usar kubectl directamente sin sudo)"
 mkdir -p /home/vagrant/.kube
