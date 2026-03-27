@@ -4,8 +4,10 @@ set -e
 echo "==>> ⚙️  Instalando dependencias... ⚙️"
 apt-get update -y
 apt-get install -y curl
+apt-get install vagrant -y
+vagrant plugin install vagrant-vbguest
 
-SERVER_IP="192.168.56.110"
+SERVER_IP="192.168.56.10"
 
 echo "==>> ⚙️  Instalando K3s en modo server... Añadiendo IP al certificado SSL... 🔒"
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \

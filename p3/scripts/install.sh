@@ -4,6 +4,8 @@ set -e
 echo "==> ⚙️ Instalando dependencias... ⚙️"
 apt-get update -y
 apt-get install -y curl ca-certificates gnupg lsb-release
+apt-get install vagrant -y
+vagrant plugin install vagrant-vbguest
 
 echo "==> ⚙️ Instalando Docker... ⚙️"
 install -m 0755 -d /etc/apt/keyrings
