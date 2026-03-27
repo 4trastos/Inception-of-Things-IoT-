@@ -1,9 +1,10 @@
-SERVER_IP   = "192.168.56.110"
+SERVER_IP   = "192.168.56.10"
 SERVER_NAME = "davgalleS"
 
 Vagrant.configure("2") do |config|
   config.vm.box = "generic/debian12"
   config.vm.box_check_update = false
+  config.vm.synced_folder ".", "/vagrant", type: "virtualbox"
 
   config.vm.define SERVER_NAME do |server|
     server.vm.hostname = SERVER_NAME

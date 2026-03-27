@@ -39,24 +39,25 @@ helm repo update
 helm upgrade --install gitlab gitlab/gitlab \
     --namespace gitlab \
     --timeout 600s \
-    --set global.hosts.domain=192.168.56.110 \
-    --set global.hosts.externalIP=192.168.56.110 \
+    --set global.hosts.domain=192.168.56.10.nip.io \
+    --set global.hosts.externalIP=192.168.56.10 \
     --set global.hosts.https=false \
-    --set global.hosts.gitlab.name=192.168.56.110 \
     --set global.edition=ce \
     --set certmanager-issuer.email=admin@gitlab.local \
     --set global.ingress.configureCertmanager=false \
     --set global.ingress.tls.enabled=false \
+    --set global.ingress.class=traefik \
+    --set global.ingress.provider=traefik \
+    --set nginx-ingress.enabled=false \
     --set gitlab-runner.install=false \
     --set prometheus.install=false \
     --set grafana.enabled=false \
     --set global.kas.enabled=false \
+    --set gitlab.gitlab-shell.enabled=false \
     --set gitlab.webservice.minReplicas=1 \
     --set gitlab.webservice.maxReplicas=1 \
     --set gitlab.sidekiq.minReplicas=1 \
     --set gitlab.sidekiq.maxReplicas=1 \
-    --set gitlab.gitlab-shell.minReplicas=1 \
-    --set gitlab.gitlab-shell.maxReplicas=1 \
     --set redis.master.persistence.enabled=false \
     --set postgresql.primary.persistence.enabled=false \
     --set minio.persistence.enabled=false
