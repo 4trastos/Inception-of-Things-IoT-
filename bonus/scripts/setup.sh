@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+export KUBECONFIG=/home/vagrant/.kube/config
 
 START_TIME=$(date +%s)
 show_elapsed() {
@@ -19,7 +20,6 @@ echo "==> ⚙️ Configurando kubeconfig..."
 mkdir -p /home/vagrant/.kube
 k3d kubeconfig get iot > /home/vagrant/.kube/config
 chown vagrant:vagrant /home/vagrant/.kube/config
-export KUBECONFIG=/home/vagrant/.kube/config
 
 echo "==> ⚙️ Creando namespaces..."
 kubectl create namespace gitlab
@@ -38,7 +38,7 @@ helm repo update
 
 helm upgrade --install gitlab gitlab/gitlab \
     --namespace gitlab \
-    --timeout 600s \
+    --timeout 1200s \
     --set global.hosts.domain=192.168.56.10.nip.io \
     --set global.hosts.externalIP=192.168.56.10 \
     --set global.hosts.https=false \
@@ -63,11 +63,23 @@ helm upgrade --install gitlab gitlab/gitlab \
     --set minio.persistence.enabled=false
 show_elapsed
 
-echo "==> ⚠️ Esperando a que GitLab arranque (puede tardar 10 min)..."
-kubectl wait --for=condition=Ready pod \
-    -l app=webservice \
-    -n gitlab \
-    --timeout=900s
+echo "==> ⚠️ Esperando a que GitLab arranque (puede tardar 15 min)..."
+TIMEOUT=1200
+ELAPSED=0
+until kubectl get pod -l app=webservice -n gitlab \
+      -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' \
+      2>/dev/null | grep -q "True"; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "ERROR: Timeout esperando webservice"
+        kubectl describe pod -l app=webservice -n gitlab
+        exit 1
+    fi
+    STATUS=$(kubectl get pod -l app=webservice -n gitlab \
+             --no-headers 2>/dev/null | awk '{print $2,$3}' | head -1)
+    echo "  ... $(date '+%H:%M:%S') webservice => ${STATUS:-pending}"
+    sleep 20
+    ELAPSED=$((ELAPSED + 20))
+done
 show_elapsed
 
 echo "==> ⚠️ Esperando a que Argo CD arranque..."

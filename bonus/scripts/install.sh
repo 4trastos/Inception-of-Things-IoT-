@@ -4,8 +4,6 @@ set -e
 echo "==> ⚙️ Instalando dependencias..."
 apt-get update -y
 apt-get install -y curl ca-certificates gnupg lsb-release
-apt-get install vagrant -y
-vagrant plugin install vagrant-vbguest
 
 echo "==> ⚙️ Instalando Docker..."
 install -m 0755 -d /etc/apt/keyrings
@@ -18,9 +16,12 @@ https://download.docker.com/linux/debian $(lsb_release -cs) stable" | \
 apt-get update -y
 apt-get install -y docker-ce docker-ce-cli containerd.io
 usermod -aG docker vagrant
+systemctl enable docker
+systemctl start docker
 
 echo "==> ⚙️ Instalando kubectl..."
-curl -LO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+curl -LO "https://dl.k8s.io/release/$(curl -sL \
+    https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 rm kubectl
 
