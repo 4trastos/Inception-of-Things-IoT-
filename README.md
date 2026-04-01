@@ -336,14 +336,97 @@ wil-playground   Synced        Healthy
 
 ---
 
-## 🦊 Bonus — GitLab local
+## 🦊 Bonus — GitLab local integrado con Argo CD
 
-> *Pendiente...*
+### ¿Qué hace esta parte?
 
-Instancia de GitLab corriendo localmente en el cluster (namespace `gitlab`), integrada con Argo CD como sustituto de GitHub.
+Reemplaza GitHub por una instancia local de **GitLab CE** corriendo dentro del cluster K3d en el namespace `gitlab`. Argo CD sincroniza desde GitLab local en vez de GitHub — sin depender de internet.
 
+| Namespace | Contenido |
+|-----------|-----------|
+| `gitlab` | GitLab CE — repositorio Git local |
+| `argocd` | Argo CD — vigila GitLab y sincroniza |
+| `dev` | `wil-playground` — desplegado automáticamente |
+
+### Cómo reproducirlo
+
+```bash
+cd bonus
+vagrant up
+
+# El setup corre en background (~10 min). Seguir progreso:
+vagrant ssh davgalleS
+tail -f /var/log/iot-setup.log
+```
+
+### Verificar que todo está corriendo
+
+```bash
+kubectl get namespaces
+kubectl get pods -n gitlab
+kubectl get pods -n dev
+kubectl get applications -n argocd
+```
+
+### Acceder a GitLab
+
+```bash
+# Port-forward
+kubectl port-forward svc/gitlab-webservice-default -n gitlab 9090:8181 --address 0.0.0.0 &
+
+# Obtener contraseña de root
+kubectl get secret gitlab-gitlab-initial-root-password \
+    -n gitlab -o jsonpath='{.data.password}' | base64 -d
+```
+
+Abre `http://192.168.56.10:9090` — usuario `root`.
+
+### Demostrar el ciclo GitOps con GitLab local (evaluación)
+
+```bash
+# 1. Verificar v1
+kubectl port-forward svc/wil-playground -n dev 9999:8888 &
+sleep 2
+curl http://localhost:9999/
+# {"status":"ok", "message": "v1"}
+
+# 2. Obtener token de GitLab
+GITLAB_PASS=$(kubectl get secret gitlab-gitlab-initial-root-password \
+    -n gitlab -o jsonpath='{.data.password}' | base64 -d)
+GITLAB_TOKEN=$(curl -sf --request POST \
+    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/oauth/token" \
+    --data "grant_type=password&username=root&password=${GITLAB_PASS}" \
+    | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+# 3. Actualizar a v2 via API de GitLab
+CONTENT=$(cat /vagrant/confs/deployment.yaml | \
+    sed 's/playground:v1/playground:v2/' | \
+    sed 's/\\/\\\\/g' | sed 's/\"/\\\"/g' | \
+    sed ':a;N;$!ba;s/\n/\\n/g')
+curl -sf --request PUT \
+    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
+    --header "Authorization: Bearer $GITLAB_TOKEN" \
+    --header "Content-Type: application/json" \
+    --data "{\"branch\":\"main\",\"content\":\"${CONTENT}\",\"commit_message\":\"Update to v2\"}"
+
+# 4. Esperar ~3 min y verificar
+sleep 180
+curl http://localhost:9999/
+# {"status":"ok", "message": "v2"}
+```
+
+### Resultado esperado
+
+```
+$ kubectl get applications -n argocd
+NAME             SYNC STATUS   HEALTH STATUS
+wil-playground   Synced        Healthy
+
+$ curl http://localhost:9999/
+{"status":"ok", "message": "v1"}
+```
 ---
 
-## 👤 Autor
+## 👤 Autores
 
 **davgalle** y **nicgonza** — Estudiantes de 42
