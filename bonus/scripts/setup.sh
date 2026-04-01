@@ -65,22 +65,61 @@ show_elapsed
 
 echo "==> ⚠️ Esperando a que GitLab arranque (puede tardar 15 min)..."
 TIMEOUT=1200
-ELAPSED=0
+ELAPSED_WAIT=0
 until kubectl get pod -l app=webservice -n gitlab \
-      -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' \
-      2>/dev/null | grep -q "True"; do
-    if [ $ELAPSED -ge $TIMEOUT ]; then
+    -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' \
+    2>/dev/null | grep -q "True"; do
+    if [ $ELAPSED_WAIT -ge $TIMEOUT ]; then
         echo "ERROR: Timeout esperando webservice"
         kubectl describe pod -l app=webservice -n gitlab
         exit 1
     fi
     STATUS=$(kubectl get pod -l app=webservice -n gitlab \
-             --no-headers 2>/dev/null | awk '{print $2,$3}' | head -1)
+        --no-headers 2>/dev/null | awk '{print $2,$3}' | head -1)
     echo "  ... $(date '+%H:%M:%S') webservice => ${STATUS:-pending}"
     sleep 20
-    ELAPSED=$((ELAPSED + 20))
+    ELAPSED_WAIT=$((ELAPSED_WAIT + 20))
 done
 show_elapsed
+
+echo "==> ⚙️ Creando repositorio iot-manifests en GitLab..."
+GITLAB_PASS=$(kubectl get secret gitlab-gitlab-initial-root-password \
+    -n gitlab \
+    -o jsonpath='{.data.password}' | base64 -d)
+
+echo "==> 🔑 Contraseña de GitLab (usuario: root): $GITLAB_PASS"
+
+# Obtener token OAuth
+GITLAB_TOKEN=$(curl -sf --request POST \
+    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/oauth/token" \
+    --data "grant_type=password&username=root&password=${GITLAB_PASS}" \
+    | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+echo "==> ⚙️ Token obtenido, creando proyecto..."
+
+# Crear el proyecto iot-manifests
+curl -sf --request POST \
+    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4/projects" \
+    --header "Authorization: Bearer $GITLAB_TOKEN" \
+    --header "Content-Type: application/json" \
+    --data '{"name": "iot-manifests", "visibility": "public", "initialize_with_readme": false}'
+
+echo ""
+echo "==> ⚙️ Subiendo deployment.yaml al repositorio..."
+sleep 5
+
+curl -sf --request POST \
+    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
+    --header "Authorization: Bearer $GITLAB_TOKEN" \
+    --header "Content-Type: application/json" \
+    --data "{
+        \"branch\": \"main\",
+        \"content\": \"$(cat /vagrant/confs/deployment.yaml | sed 's/\\/\\\\/g' | sed 's/\"/\\\"/g' | sed ':a;N;\$!ba;s/\n/\\n/g')\",
+        \"commit_message\": \"Add wil-playground deployment\"
+    }"
+
+echo ""
+echo "==> 🟢 Repositorio iot-manifests creado y deployment.yaml subido"
 
 echo "==> ⚠️ Esperando a que Argo CD arranque..."
 wait $ARGOCD_PID
@@ -88,12 +127,6 @@ kubectl wait --for=condition=Ready pods --all \
     -n argocd \
     --timeout=300s
 show_elapsed
-
-echo "==> 🔑 Contraseña de GitLab (usuario: root):"
-kubectl get secret gitlab-gitlab-initial-root-password \
-    -n gitlab \
-    -o jsonpath='{.data.password}' | base64 -d
-echo ""
 
 echo "==> ⚙️ Configurando Argo CD..."
 kubectl apply -f /vagrant/confs/argocd-gitlab-secret.yaml
