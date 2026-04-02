@@ -364,6 +364,7 @@ tail -f /var/log/iot-setup.log
 ```bash
 kubectl get namespaces
 kubectl get pods -n gitlab
+kubectl get pods -n argocd
 kubectl get pods -n dev
 kubectl get applications -n argocd
 ```
@@ -371,15 +372,12 @@ kubectl get applications -n argocd
 ### Acceder a GitLab
 
 ```bash
-# Port-forward
 kubectl port-forward svc/gitlab-webservice-default -n gitlab 9090:8181 --address 0.0.0.0 &
-
-# Obtener contraseña de root
 kubectl get secret gitlab-gitlab-initial-root-password \
     -n gitlab -o jsonpath='{.data.password}' | base64 -d
+echo ""
+# Abrir http://192.168.56.10:9090  usuario: root
 ```
-
-Abre `http://192.168.56.10:9090` — usuario `root`.
 
 ### Demostrar el ciclo GitOps con GitLab local (evaluación)
 
@@ -390,27 +388,35 @@ sleep 2
 curl http://localhost:9999/
 # {"status":"ok", "message": "v1"}
 
-# 2. Obtener token de GitLab
+# 2. Obtener credenciales
 GITLAB_PASS=$(kubectl get secret gitlab-gitlab-initial-root-password \
     -n gitlab -o jsonpath='{.data.password}' | base64 -d)
-GITLAB_TOKEN=$(curl -sf --request POST \
-    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/oauth/token" \
+GITLAB_POD=$(kubectl get pod -l app=webservice -n gitlab \
+    -o name | head -1 | sed 's|pod/||')
+GITLAB_TOKEN=$(kubectl exec -n gitlab $GITLAB_POD \
+    -c gitlab-workhorse -- \
+    curl -sf --request POST "http://localhost:8181/oauth/token" \
     --data "grant_type=password&username=root&password=${GITLAB_PASS}" \
     | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
 
-# 3. Actualizar a v2 via API de GitLab
-CONTENT=$(cat /vagrant/confs/deployment.yaml | \
-    sed 's/playground:v1/playground:v2/' | \
-    sed 's/\\/\\\\/g' | sed 's/\"/\\\"/g' | \
-    sed ':a;N;$!ba;s/\n/\\n/g')
-curl -sf --request PUT \
-    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
-    --header "Authorization: Bearer $GITLAB_TOKEN" \
+# 3. Cambiar a v2 via API de GitLab
+CONTENT=$(python3 -c "
+import json
+with open('/vagrant/confs/deployment.yaml') as f:
+    content = f.read().replace('playground:v1', 'playground:v2')
+    print(json.dumps(content))
+")
+kubectl exec -n gitlab $GITLAB_POD -c gitlab-workhorse -- \
+    curl -sf --request PUT \
+    "http://localhost:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
+    --header "Authorization: Bearer ${GITLAB_TOKEN}" \
     --header "Content-Type: application/json" \
-    --data "{\"branch\":\"main\",\"content\":\"${CONTENT}\",\"commit_message\":\"Update to v2\"}"
+    --data "{\"branch\":\"main\",\"content\":${CONTENT},\"commit_message\":\"Update to v2\"}"
 
-# 4. Esperar ~3 min y verificar
-sleep 180
+# 4. Esperar y verificar
+kubectl annotate application wil-playground -n argocd \
+    argocd.argoproj.io/refresh=hard --overwrite
+sleep 60
 curl http://localhost:9999/
 # {"status":"ok", "message": "v2"}
 ```
@@ -425,6 +431,7 @@ wil-playground   Synced        Healthy
 $ curl http://localhost:9999/
 {"status":"ok", "message": "v1"}
 ```
+
 ---
 
 ## 👤 Autores

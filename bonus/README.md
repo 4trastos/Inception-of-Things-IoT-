@@ -18,7 +18,7 @@ Tu portátil
 El flujo GitOps ahora es 100% local:
 
 ```
-Tú haces push a GitLab local
+Tú actualizas el repo en GitLab local via API
     │
     ▼
 GitLab (namespace: gitlab, dentro del cluster)
@@ -52,26 +52,21 @@ En empresas con datos sensibles (banca, salud, defensa), tener el repositorio fu
 
 ## Arquitectura técnica
 
-El bonus usa **GitLab CE instalado con Helm** dentro del namespace `gitlab`. Helm es un gestor de paquetes para Kubernetes — piensa en él como el `apt` de Kubernetes.
+El bonus usa **GitLab CE instalado con Helm** dentro del namespace `gitlab`. Helm es un gestor de paquetes para Kubernetes.
 
 ```
 Helm chart de GitLab CE
     └── namespace: gitlab
-            ├── gitlab-webservice    ← La interfaz web y API de GitLab
+            ├── gitlab-webservice    ← Interfaz web y API de GitLab
             ├── gitlab-gitaly        ← Almacenamiento de repositorios Git
             ├── gitlab-postgresql    ← Base de datos
             ├── gitlab-redis         ← Cache y colas
             ├── gitlab-sidekiq       ← Procesamiento de tareas en background
             ├── gitlab-registry      ← Registro de imágenes Docker
-            └── gitlab-minio         ← Almacenamiento de objetos (artefactos, backups)
+            └── gitlab-minio         ← Almacenamiento de objetos
 ```
 
-Argo CD se conecta a GitLab usando la URL interna del cluster:
-```
-http://gitlab-webservice-default.gitlab.svc.cluster.local:8181
-```
-
-Esto significa que la comunicación entre Argo CD y GitLab nunca sale del cluster — es completamente interna.
+**Nota técnica importante**: Las llamadas a la API de GitLab se hacen desde dentro del pod `gitlab-workhorse` porque la IP del Service solo es accesible desde dentro del cluster K3d. El script `setup.sh` automatiza esto completamente.
 
 ---
 
@@ -80,12 +75,13 @@ Esto significa que la comunicación entre Argo CD y GitLab nunca sale del cluste
 El bonus está completamente automatizado. El script `setup.sh` hace todo:
 
 1. Crea el cluster K3d
-2. Instala GitLab con Helm y Argo CD en paralelo
-3. Espera a que GitLab arranque completamente
-4. Crea automáticamente el repositorio `iot-manifests` via API de GitLab
-5. Sube el `deployment.yaml` al repositorio
-6. Configura Argo CD para vigilar GitLab
-7. Muestra las contraseñas generadas
+2. Instala GitLab con Helm y Argo CD en **paralelo** (ahorra tiempo)
+3. Espera a que GitLab arranque completamente (check real de la API)
+4. Obtiene el token OAuth desde dentro del pod
+5. Crea automáticamente el repositorio `iot-manifests` via API
+6. Sube el `deployment.yaml` al repositorio
+7. Configura Argo CD con la IP dinámica del Service de GitLab
+8. Muestra las contraseñas generadas
 
 ---
 
@@ -95,7 +91,7 @@ El bonus está completamente automatizado. El script `setup.sh` hace todo:
 cd bonus
 vagrant up
 
-# El setup corre en background, seguir el progreso con:
+# El setup corre en background (~10 min). Seguir progreso:
 vagrant ssh davgalleS
 tail -f /var/log/iot-setup.log
 ```
@@ -110,52 +106,92 @@ kubectl get pods -n dev
 kubectl get applications -n argocd
 ```
 
-### Acceder a GitLab
+### Acceder a GitLab desde el navegador
 
 ```bash
-# Port-forward para acceder desde el navegador
+# Port-forward para acceder desde tu PC
 kubectl port-forward svc/gitlab-webservice-default -n gitlab 9090:8181 --address 0.0.0.0 &
 
 # Obtener la contraseña de root
 kubectl get secret gitlab-gitlab-initial-root-password \
     -n gitlab \
     -o jsonpath='{.data.password}' | base64 -d
+echo ""
 ```
 
-Abre `http://192.168.56.10:9090` en el navegador — usuario `root`, contraseña la del comando anterior.
+Abre `http://192.168.56.10:9090` — usuario `root`, contraseña la del comando anterior.
 
-### Demostrar el ciclo GitOps con GitLab local
+---
+
+## Demostrar el ciclo GitOps (evaluación)
+
+### Paso 1 — Verificar que la app está en v1
 
 ```bash
-# 1. Verificar que la app está en v1
 kubectl port-forward svc/wil-playground -n dev 9999:8888 &
 sleep 2
 curl http://localhost:9999/
 # {"status":"ok", "message": "v1"}
+```
 
-# 2. Obtener token de GitLab
+### Paso 2 — Obtener credenciales de GitLab
+
+```bash
+# Contraseña de root
 GITLAB_PASS=$(kubectl get secret gitlab-gitlab-initial-root-password \
     -n gitlab -o jsonpath='{.data.password}' | base64 -d)
 
-GITLAB_TOKEN=$(curl -sf --request POST \
-    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/oauth/token" \
+# Pod del webservice
+GITLAB_POD=$(kubectl get pod -l app=webservice -n gitlab \
+    -o name | head -1 | sed 's|pod/||')
+
+# Token OAuth (desde dentro del pod)
+GITLAB_TOKEN=$(kubectl exec -n gitlab $GITLAB_POD \
+    -c gitlab-workhorse -- \
+    curl -sf --request POST \
+    "http://localhost:8181/oauth/token" \
     --data "grant_type=password&username=root&password=${GITLAB_PASS}" \
     | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
 
-# 3. Cambiar v1 por v2 en GitLab via API
-CONTENT=$(cat /vagrant/confs/deployment.yaml | \
-    sed 's/playground:v1/playground:v2/' | \
-    sed 's/\\/\\\\/g' | sed 's/\"/\\\"/g' | \
-    sed ':a;N;$!ba;s/\n/\\n/g')
+echo "Token: ${GITLAB_TOKEN:0:15}..."
+```
 
-curl -sf --request PUT \
-    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
-    --header "Authorization: Bearer $GITLAB_TOKEN" \
+### Paso 3 — Cambiar v1 por v2 en GitLab
+
+```bash
+# Generar contenido del deployment con v2
+CONTENT=$(python3 -c "
+import json
+with open('/vagrant/confs/deployment.yaml') as f:
+    content = f.read().replace('playground:v1', 'playground:v2')
+    print(json.dumps(content))
+")
+
+# Actualizar el archivo en GitLab via API (desde dentro del pod)
+kubectl exec -n gitlab $GITLAB_POD -c gitlab-workhorse -- \
+    curl -sf --request PUT \
+    "http://localhost:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
+    --header "Authorization: Bearer ${GITLAB_TOKEN}" \
     --header "Content-Type: application/json" \
-    --data "{\"branch\":\"main\",\"content\":\"${CONTENT}\",\"commit_message\":\"Update app to v2\"}"
+    --data "{\"branch\":\"main\",\"content\":${CONTENT},\"commit_message\":\"Update app to v2\"}"
+echo ""
+echo "==> Commit enviado a GitLab"
+```
 
-# 4. Esperar ~3 minutos y verificar
-sleep 180
+### Paso 4 — Esperar y verificar
+
+```bash
+# Argo CD sincroniza cada ~3 minutos
+# Puedes forzar la sincronización:
+kubectl annotate application wil-playground -n argocd \
+    argocd.argoproj.io/refresh=hard --overwrite
+
+# Esperar y verificar
+sleep 60
+kubectl get applications -n argocd
+kubectl get pods -n dev
+
+# Verificar la versión
 curl http://localhost:9999/
 # {"status":"ok", "message": "v2"}
 ```
@@ -194,10 +230,11 @@ $ curl http://localhost:9999/
 
 ## Notas importantes para la evaluación
 
-- El setup tarda **~10 minutos** — GitLab CE es una aplicación grande con muchos componentes
-- La VM necesita **8GB de RAM y 4 CPUs** para que GitLab funcione correctamente
-- En el campus de 42, asegúrate de clonar el repo en `/goinfre` y configurar `VAGRANT_HOME` ahí
-- La contraseña de GitLab es aleatoria y se genera en cada instalación — siempre obtenerla con el comando del Secret
+- El setup tarda **~10 minutos** — GitLab CE es una aplicación grande
+- La VM necesita **8GB de RAM y 4 CPUs**
+- Las llamadas a la API de GitLab deben hacerse **desde dentro del pod** (`kubectl exec`) porque la IP del Service solo es accesible dentro del cluster K3d
+- La contraseña de GitLab es aleatoria en cada instalación — obtenerla siempre del Secret
+- En el campus de 42: clonar el repo en `/goinfre` y configurar `VAGRANT_HOME` ahí
 
 ---
 
