@@ -71,7 +71,6 @@ until kubectl get pod -l app=webservice -n gitlab \
     2>/dev/null | grep -q "True"; do
     if [ $ELAPSED_WAIT -ge $TIMEOUT ]; then
         echo "ERROR: Timeout esperando webservice"
-        kubectl describe pod -l app=webservice -n gitlab
         exit 1
     fi
     STATUS=$(kubectl get pod -l app=webservice -n gitlab \
@@ -82,63 +81,131 @@ until kubectl get pod -l app=webservice -n gitlab \
 done
 show_elapsed
 
-echo "==> ⚙️ Creando repositorio iot-manifests en GitLab..."
+echo "==> ⚙️ Obteniendo IP del Service de GitLab..."
+GITLAB_SVC_IP=$(kubectl get svc gitlab-webservice-default -n gitlab \
+    -o jsonpath='{.spec.clusterIP}')
+GITLAB_URL="http://${GITLAB_SVC_IP}:8181"
+echo "==> GitLab Service IP: ${GITLAB_SVC_IP}"
+
+echo "==> ⚙️ Esperando a que la API de GitLab responda..."
+until [ "$(kubectl exec -n gitlab \
+    $(kubectl get pod -l app=webservice -n gitlab -o name | head -1) \
+    -c gitlab-workhorse -- \
+    curl -s -o /dev/null -w '%{http_code}' \
+    http://localhost:8181/api/v4/version 2>/dev/null)" = "401" ]; do
+    echo "  ... API no disponible aún, esperando 15s..."
+    sleep 15
+done
+echo "==> 🟢 API de GitLab lista"
+
+GITLAB_POD=$(kubectl get pod -l app=webservice -n gitlab \
+    -o name | head -1 | sed 's|pod/||')
+
+echo "==> ⚙️ Obteniendo credenciales de GitLab..."
 GITLAB_PASS=$(kubectl get secret gitlab-gitlab-initial-root-password \
-    -n gitlab \
-    -o jsonpath='{.data.password}' | base64 -d)
+    -n gitlab -o jsonpath='{.data.password}' | base64 -d)
+echo "==> 🔑 GitLab root password: $GITLAB_PASS"
 
-echo "==> 🔑 Contraseña de GitLab (usuario: root): $GITLAB_PASS"
-
-# Obtener token OAuth
-GITLAB_TOKEN=$(curl -sf --request POST \
-    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/oauth/token" \
+GITLAB_TOKEN=$(kubectl exec -n gitlab $GITLAB_POD \
+    -c gitlab-workhorse -- \
+    curl -sf --request POST \
+    "http://localhost:8181/oauth/token" \
     --data "grant_type=password&username=root&password=${GITLAB_PASS}" \
     | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+echo "==> 🔑 Token obtenido: ${GITLAB_TOKEN:0:10}..."
 
-echo "==> ⚙️ Token obtenido, creando proyecto..."
+echo "==> ⚙️ Esperando a que la API de proyectos esté lista..."
+until [ "$(kubectl exec -n gitlab $GITLAB_POD \
+    -c gitlab-workhorse -- \
+    curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer ${GITLAB_TOKEN}" \
+    http://localhost:8181/api/v4/projects 2>/dev/null)" = "200" ]; do
+    echo "  ... API de proyectos no lista, esperando 15s..."
+    sleep 15
+done
+echo "==> 🟢 API de proyectos lista"
 
-# Crear el proyecto iot-manifests
-curl -sf --request POST \
-    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4/projects" \
-    --header "Authorization: Bearer $GITLAB_TOKEN" \
+echo "==> ⚙️ Creando repositorio iot-manifests..."
+kubectl exec -n gitlab $GITLAB_POD -c gitlab-workhorse -- \
+    curl -sf --request POST \
+    "http://localhost:8181/api/v4/projects" \
+    --header "Authorization: Bearer ${GITLAB_TOKEN}" \
     --header "Content-Type: application/json" \
-    --data '{"name": "iot-manifests", "visibility": "public", "initialize_with_readme": false}'
-
+    --data '{"name":"iot-manifests","visibility":"public","initialize_with_readme":false}'
 echo ""
-echo "==> ⚙️ Subiendo deployment.yaml al repositorio..."
+
 sleep 5
 
-curl -sf --request POST \
-    "http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
-    --header "Authorization: Bearer $GITLAB_TOKEN" \
-    --header "Content-Type: application/json" \
-    --data "{
-        \"branch\": \"main\",
-        \"content\": \"$(cat /vagrant/confs/deployment.yaml | sed 's/\\/\\\\/g' | sed 's/\"/\\\"/g' | sed ':a;N;\$!ba;s/\n/\\n/g')\",
-        \"commit_message\": \"Add wil-playground deployment\"
-    }"
+echo "==> ⚙️ Subiendo deployment.yaml..."
+DEPLOYMENT_CONTENT=$(python3 -c "
+import json
+with open('/vagrant/confs/deployment.yaml') as f:
+    print(json.dumps(f.read()))
+")
 
+kubectl exec -n gitlab $GITLAB_POD -c gitlab-workhorse -- \
+    curl -sf --request POST \
+    "http://localhost:8181/api/v4/projects/1/repository/files/manifests%2Fdeployment.yaml" \
+    --header "Authorization: Bearer ${GITLAB_TOKEN}" \
+    --header "Content-Type: application/json" \
+    --data "{\"branch\":\"main\",\"content\":${DEPLOYMENT_CONTENT},\"commit_message\":\"Add wil-playground deployment\"}"
 echo ""
-echo "==> 🟢 Repositorio iot-manifests creado y deployment.yaml subido"
+echo "==> 🟢 Repositorio creado y deployment.yaml subido"
 
 echo "==> ⚠️ Esperando a que Argo CD arranque..."
 wait $ARGOCD_PID
 kubectl wait --for=condition=Ready pods --all \
-    -n argocd \
-    --timeout=300s
+    -n argocd --timeout=300s
 show_elapsed
 
-echo "==> ⚙️ Configurando Argo CD..."
-kubectl apply -f /vagrant/confs/argocd-gitlab-secret.yaml
-kubectl apply -f /vagrant/confs/argocd-app.yaml
+echo "==> ⚙️ Configurando Argo CD con IP dinámica de GitLab..."
+REPO_URL="${GITLAB_URL}/root/iot-manifests.git"
+
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-repo
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: ${REPO_URL}
+  username: root
+  password: ${GITLAB_PASS}
+EOF
+
+kubectl apply -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: wil-playground
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: ${REPO_URL}
+    targetRevision: HEAD
+    path: manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+EOF
 
 echo "==> 🔑 Contraseña de Argo CD (usuario: admin):"
 kubectl get secret argocd-initial-admin-secret \
-    -n argocd \
-    -o jsonpath='{.data.password}' | base64 -d
+    -n argocd -o jsonpath='{.data.password}' | base64 -d
 echo ""
 
 show_elapsed
 echo "==> 🟢 setup.sh completado"
 echo "==> GitLab:  kubectl port-forward svc/gitlab-webservice-default -n gitlab 9090:8181"
 echo "==> Argo CD: kubectl port-forward svc/argocd-server -n argocd 9443:443"
+echo "==> App:     kubectl port-forward svc/wil-playground -n dev 9999:8888"
