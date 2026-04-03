@@ -154,6 +154,32 @@ kubectl get applications -n argocd
 # Ver el pod actualizándose en tiempo real
 kubectl get pods -n dev -w
 # Verás el pod viejo terminando y uno nuevo arrancando
+
+ kubectl get application wil-playground -n argocd -o jsonpath='{.status.sync.status}'jsonpath='{.status.sync.status}'
+echo ""
+kubectl get application wil-playground -n argocd -o jsonpath='{.status.operationState.phase}'
+echo ""
+Synced
+Succeeded
+vagrant@davgalleS:~$ kubectl get application wil-playground -n argocd -o jsonpath='{.status.summary.images}'
+echo ""
+["wil42/playground:v1"]
+vagrant@davgalleS:~$ kubectl get pod -n dev -o jsonpath='{.items[0].spec.containers[0].image}'
+echo ""
+wil42/playground:v1
+vagrant@davgalleS:~$ kubectl annotate application wil-playground -n argocd \
+
+argocd app sync wil-playground --force
+application.argoproj.io/wil-playground annotated
+-bash: argocd: command not found
+vagrant@davgalleS:~$ pkill -f "port-forward" 2>/dev/null; sleep 1
+[1]+  Terminated              kubectl port-forward svc/wil-playground -n dev 9999:8888
+vagrant@davgalleS:~$ kubectl port-forward svc/wil-playground -n dev 9999:8888 &
+[1] 29938
+vagrant@davgalleS:~$ Forwarding from 127.0.0.1:9999 -> 8888
+vagrant@davgalleS:~$ curl http://localhost:9999/
+Handling connection for 9999
+{"status":"ok", "message": "v2"}v
 ```
 
 ### 4. Verificar la nueva versión
